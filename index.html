@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Fuel Log</title>
+<meta name="description" content="Refuels and fuel consumption from the car's MyToyota data.">
+<meta name="theme-color" content="#0f766e">
+<meta name="robots" content="noindex">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<style>
+  :root {
+    --bg: #f4f6f6;
+    --card: #ffffff;
+    --text: #15201f;
+    --muted: #5d6b6a;
+    --line: #dfe5e4;
+    --accent: #0f766e;
+    --accent-soft: #d5ecea;
+    --warn: #b45309;
+    --good: #15803d;
+    --bad: #b91c1c;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0e1413;
+      --card: #172120;
+      --text: #e6eeed;
+      --muted: #93a3a1;
+      --line: #263331;
+      --accent: #2dd4bf;
+      --accent-soft: #123b37;
+      --warn: #fbbf24;
+      --good: #4ade80;
+      --bad: #f87171;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #0e1413; --card: #172120; --text: #e6eeed; --muted: #93a3a1;
+    --line: #263331; --accent: #2dd4bf; --accent-soft: #123b37;
+    --warn: #fbbf24; --good: #4ade80; --bad: #f87171; color-scheme: dark;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  main {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: max(16px, env(safe-area-inset-top)) 16px max(24px, env(safe-area-inset-bottom));
+  }
+  header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 4px 0 16px; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -0.01em; }
+  h2 { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 24px 0 8px; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .stale { color: var(--warn); }
+  button {
+    font: inherit; font-size: 14px; color: var(--accent); background: var(--accent-soft);
+    border: 0; border-radius: 999px; padding: 8px 14px; cursor: pointer;
+  }
+  button:disabled { opacity: .5; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 16px; }
+  .tank-top { display: flex; align-items: baseline; justify-content: space-between; }
+  .big { font-size: 40px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+  .bar { height: 10px; border-radius: 999px; background: var(--accent-soft); overflow: hidden; margin: 10px 0 2px; }
+  .bar > div { height: 100%; background: var(--accent); border-radius: 999px; transition: width .4s; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+  .stat .label { font-size: 13px; color: var(--muted); }
+  .stat .value { font-size: 22px; font-weight: 650; font-variant-numeric: tabular-nums; }
+  .stat .value small { font-size: 14px; font-weight: 500; color: var(--muted); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  .refuel { padding: 12px 0; border-top: 1px solid var(--line); }
+  .refuel:first-child { border-top: 0; padding-top: 0; }
+  .refuel:last-child { padding-bottom: 0; }
+  .row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline; }
+  .when { font-weight: 600; }
+  .litres { font-weight: 650; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .meta { color: var(--muted); font-size: 14px; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .over { color: var(--bad); }
+  .under { color: var(--good); }
+  .empty { color: var(--muted); }
+  .error { color: var(--bad); margin: 12px 0; }
+  form { display: grid; gap: 10px; }
+  input {
+    font: inherit; width: 100%; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--bg); color: var(--text);
+  }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Fuel log</h1>
+      <div class="sub" id="updated">&nbsp;</div>
+    </div>
+    <button id="refresh" type="button" hidden>Refresh</button>
+  </header>
+
+  <section id="setup" class="card" hidden>
+    <form id="setup-form">
+      <label for="gist">Gist ID or URL</label>
+      <input id="gist" autocomplete="off" spellcheck="false" placeholder="https://gist.github.com/…/abc123…">
+      <button type="submit">Show my car</button>
+      <div class="sub">Saved on this device only. Open this page as <code>…/#&lt;gist id&gt;</code> to skip this step.</div>
+    </form>
+  </section>
+
+  <div id="error" class="error" hidden></div>
+
+  <div id="content" hidden>
+    <section class="card">
+      <div class="tank-top">
+        <div><span class="big" id="fuel-pct">–</span></div>
+        <div class="sub" id="fuel-litres"></div>
+      </div>
+      <div class="bar"><div id="fuel-bar" style="width:0"></div></div>
+      <div class="sub">Tank level</div>
+    </section>
+
+    <div class="grid">
+      <div class="card stat">
+        <div class="label">Since last refuel</div>
+        <div class="value" id="km-since">–</div>
+        <div class="sub" id="last-refuel"></div>
+      </div>
+      <div class="card stat">
+        <div class="label">Avg consumption</div>
+        <div class="value" id="avg">–</div>
+        <div class="sub" id="refuel-count"></div>
+      </div>
+    </div>
+
+    <h2>Refuels</h2>
+    <section class="card">
+      <ul id="refuels"></ul>
+    </section>
+
+    <h2>Lease mileage</h2>
+    <div class="grid">
+      <div class="card stat">
+        <div class="label">Odometer</div>
+        <div class="value" id="odo">–</div>
+        <div class="sub" id="expected"></div>
+      </div>
+      <div class="card stat">
+        <div class="label">Vs. allowance</div>
+        <div class="value" id="diff">–</div>
+        <div class="sub" id="budget"></div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+(() => {
+  const KEY = "fuel-log:gist";
+  const CACHE = "fuel-log:data";
+  const TZ = "Europe/Prague";
+  const $ = (id) => document.getElementById(id);
+
+  const store = {
+    get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+    set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+  };
+
+  const nf = new Intl.NumberFormat("cs-CZ");
+  const num = (v, digits = 0) =>
+    v == null ? "–" : nf.format(Number(v.toFixed ? v.toFixed(digits) : v));
+
+  const dateParts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: TZ, day: "2-digit", month: "2-digit", year: "numeric",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  });
+  function local(iso) {
+    const p = Object.fromEntries(dateParts.formatToParts(new Date(iso)).map((x) => [x.type, x.value]));
+    return { date: `${p.day}.${p.month}.${p.year}`, time: `${p.hour}:${p.minute}` };
+  }
+  function when(r) {
+    const end = local(r.detected_at);
+    if (!r.after) return `${end.date}, by ${end.time}`;
+    const start = local(r.after);
+    return start.date === end.date
+      ? `${end.date}, ${start.time}–${end.time}`
+      : `${start.date} ${start.time} – ${end.date} ${end.time}`;
+  }
+  function ago(iso) {
+    const mins = Math.round((Date.now() - new Date(iso)) / 60000);
+    if (mins < 60) return `${mins} min ago`;
+    const h = Math.round(mins / 60);
+    if (h < 48) return `${h} h ago`;
+    return `${Math.round(h / 24)} days ago`;
+  }
+
+  function parseGistId(text) {
+    const m = String(text || "").trim().match(/([0-9a-f]{20,})\/?(?:#.*)?$/i);
+    return m ? m[1] : null;
+  }
+
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text != null) e.textContent = text;
+    return e;
+  }
+
+  function render({ status, history }) {
+    const refuels = (history && history.refuels) || [];
+    $("content").hidden = false;
+
+    const stale = status.updated && Date.now() - new Date(status.updated) > 12 * 3600e3;
+    $("updated").textContent = status.updated ? `Car data ${ago(status.updated)}` : "";
+    $("updated").classList.toggle("stale", !!stale);
+
+    const pct = status.fuel_pct;
+    $("fuel-pct").textContent = pct == null ? "–" : `${pct} %`;
+    $("fuel-litres").textContent = status.fuel_litres_est == null ? "no reading yet" : `≈ ${num(status.fuel_litres_est, 1)} l`;
+    $("fuel-bar").style.width = `${Math.max(0, Math.min(100, pct || 0))}%`;
+
+    $("km-since").innerHTML = "";
+    if (status.km_since_refuel == null) $("km-since").textContent = "–";
+    else {
+      $("km-since").append(num(status.km_since_refuel), " ");
+      $("km-since").append(el("small", null, "km"));
+    }
+    $("last-refuel").textContent = status.last_refuel ? local(status.last_refuel).date : "no refuel yet";
+
+    $("avg").innerHTML = "";
+    if (status.avg_l_per_100km == null) $("avg").textContent = "–";
+    else {
+      $("avg").append(num(status.avg_l_per_100km, 1), " ");
+      $("avg").append(el("small", null, "l/100 km"));
+    }
+    const n = status.refuels_count || 0;
+    $("refuel-count").textContent = n < 2 ? "after 2 refuels" : `${n} refuels`;
+
+    const list = $("refuels");
+    list.innerHTML = "";
+    if (!refuels.length) {
+      list.append(el("li", "empty", "No refuels detected yet. The first fill after setup will appear here."));
+    }
+    for (const r of [...refuels].reverse()) {
+      const li = el("li", "refuel");
+      const top = el("div", "row");
+      top.append(el("span", "when", when(r)), el("span", "litres", `+${num(r.litres_est, 1)} l`));
+      const meta = [`${num(r.odometer_km)} km`, `${r.from_pct} % → ${r.to_pct} %`];
+      if (r.km_since_prev != null) meta.push(`${num(r.km_since_prev)} km in ${num(r.days_since_prev, 1)} d`);
+      if (r.l_per_100km != null) meta.push(`${num(r.l_per_100km, 1)} l/100 km`);
+      li.append(top, el("div", "meta", meta.join(" · ")));
+      list.append(li);
+    }
+
+    $("odo").innerHTML = "";
+    $("odo").append(num(status.actual_km), " ");
+    $("odo").append(el("small", null, "km"));
+    $("expected").textContent = `allowance today ${num(status.expected_km)} km`;
+    const diff = status.diff_km;
+    $("diff").textContent = diff == null ? "–" : `${diff > 0 ? "+" : ""}${num(diff)} km`;
+    $("diff").className = `value ${diff > 0 ? "over" : "under"}`;
+    $("budget").textContent = status.km_per_day_left == null ? "" : `${num(status.km_per_day_left, 1)} km/day left`;
+  }
+
+  async function load(gist) {
+    $("refresh").hidden = false;
+    $("refresh").disabled = true;
+    $("error").hidden = true;
+    try {
+      const res = await fetch(`https://api.github.com/gists/${gist}`, {
+        headers: { Accept: "application/vnd.github+json" }, cache: "no-store",
+      });
+      if (!res.ok) throw new Error(res.status === 404 ? "Gist not found. Check the ID." : `GitHub returned ${res.status}.`);
+      const files = (await res.json()).files || {};
+      if (!files["status.json"]) throw new Error("This gist has no status.json.");
+      const data = {
+        status: JSON.parse(files["status.json"].content),
+        history: files["fuel_history.json"] && files["fuel_history.json"].content.trim()
+          ? JSON.parse(files["fuel_history.json"].content) : null,
+      };
+      store.set(CACHE, JSON.stringify(data));
+      render(data);
+    } catch (e) {
+      $("error").textContent = `Couldn't load fresh data: ${e.message}`;
+      $("error").hidden = false;
+    } finally {
+      $("refresh").disabled = false;
+    }
+  }
+
+  function start() {
+    // Gist ID comes in the URL fragment (never sent to a server), then is kept
+    // on this device so the home-screen icon works without it.
+    const fromHash = parseGistId(location.hash.slice(1));
+    if (fromHash) {
+      store.set(KEY, fromHash);
+      history.replaceState(null, "", location.pathname + location.search);
+    }
+    const gist = fromHash || store.get(KEY);
+    if (!gist) { $("setup").hidden = false; return; }
+
+    try {
+      const cached = JSON.parse(store.get(CACHE) || "null");
+      if (cached) render(cached);
+    } catch {}
+    load(gist);
+    $("refresh").onclick = () => load(gist);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") load(gist);
+    });
+  }
+
+  $("setup-form").addEventListener("submit", (e) => {
+    e.preventDefault();
+    const id = parseGistId($("gist").value);
+    if (!id) { $("gist").setCustomValidity("That doesn't look like a gist ID"); $("gist").reportValidity(); return; }
+    store.set(KEY, id);
+    $("setup").hidden = true;
+    start();
+  });
+  $("gist").addEventListener("input", () => $("gist").setCustomValidity(""));
+
+  if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js").catch(() => {});
+  start();
+})();
+</script>
+</body>
+</html>
